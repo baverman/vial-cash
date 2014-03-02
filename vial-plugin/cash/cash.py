@@ -20,6 +20,7 @@ INITDATE = date(1983, 6, 11)
 
 Token = namedtuple('Token', 'id value line')
 
+
 def lexer(lines):
     for ln, line in enumerate(lines, 1):
         sline = line.lstrip()
@@ -54,7 +55,7 @@ def lexer(lines):
         yield Token(LEND, None, ln)
 
 
-class TokenGenerator(object):
+class TokenFeed(object):
     def __init__(self, lexer):
         self.lexer = lexer
         self.item = None
@@ -75,7 +76,8 @@ class TokenGenerator(object):
     def popany(self, *ids):
         token = self.pop()
         if token.id not in ids:
-            raise Exception('line {}: {} not in {}'.format(token.line, token.id, ids))
+            raise Exception('line {}: {} not in {}'.format(
+                token.line, token.id, ids))
 
         return token
 
@@ -95,88 +97,63 @@ class TokenGenerator(object):
         if self.nextis(id):
             return self.pop().value
 
-
-def parse_currency(tokens, cash):
-    cash.currency = tokens.popany(ID).value
-    tokens.popany(LEND)
+    def indent(self, func):
+        if self.skipif(LEND):
+            indent = self.peek().value
+            while self.skipif(INDENT, indent):
+                func()
+        else:
+            func()
 
 
 def parse_rate(tokens, cash):
-    cur = tokens.popany(ID)[1]
-    multiplier = tokens.popany(NUMBER)[1]
-    cash.rates[cur] = multiplier
-    tokens.popany(LEND)
-
-
-def parse_rates(tokens, cash):
-    if tokens.skipif(LEND):
-        while tokens.skipif(INDENT):
-            parse_rate(tokens, cash)
-    else:
-        parse_rate(tokens, cash)
+    @tokens.indent
+    def parse():
+        cur = tokens.popany(ID).value
+        multiplier = tokens.popany(NUMBER).value
+        cash.rates[cur] = multiplier
+        tokens.popany(LEND)
 
 
 def parse_initial(tokens, cash):
-    account = tokens.popany(CID)[1]
-    amount = tokens.popany(NUMBER)[1]
-    currency = tokens.get(ID)
-    comment = tokens.get(COMMENT)
-    cash.add_operation(INITDATE, None, account, amount, currency, comment)
-    tokens.popany(LEND)
-
-
-def parse_initials(tokens, cash):
-    if tokens.skipif(LEND):
-        while tokens.skipif(INDENT):
-            parse_initial(tokens, cash)
-    else:
-        parse_initial(tokens, cash)
-
-
-def parse_op_amount(tokens, cash, dt, account_from, account_to):
-    amount = tokens.popany(NUMBER)[1]
-    currency = tokens.get(ID)
-    comment = tokens.get(COMMENT)
-    cash.add_operation(dt, account_from, account_to, amount, currency, comment)
-    tokens.popany(LEND)
-
-
-def parse_op_tail(tokens, cash, dt, account_from):
-    account_to = tokens.popany(CID)[1]
-    if tokens.skipif(LEND):
-        indent = tokens.peek().value
-        while tokens.skipif(INDENT, indent):
-            parse_op_amount(tokens, cash, dt, account_from, account_to)
-    else:
-        parse_op_amount(tokens, cash, dt, account_from, account_to)
-
-
-def parse_op(tokens, cash, dt):
-    account_from = tokens.popany(CID)[1]
-    if tokens.skipif(LEND):
-        indent = tokens.peek().value
-        while tokens.skipif(INDENT, indent):
-            parse_op_tail(tokens, cash, dt, account_from)
-    else:
-        parse_op_tail(tokens, cash, dt, account_from)
+    @tokens.indent
+    def parse():
+        account = tokens.popany(CID).value
+        amount = tokens.popany(NUMBER).value
+        currency = tokens.get(ID)
+        comment = tokens.get(COMMENT)
+        cash.add_operation(INITDATE, None, account, amount, currency, comment)
+        tokens.popany(LEND)
 
 
 def parse_date(tokens, cash, dt):
-    if tokens.skipif(LEND):
-        while tokens.skipif(INDENT):
-            parse_op(tokens, cash, dt)
-    else:
-        parse_op(tokens, cash, dt)
+    @tokens.indent
+    def parse_from():
+        account_from = tokens.popany(CID).value
+
+        @tokens.indent
+        def parse_to():
+            account_to = tokens.popany(CID).value
+
+            @tokens.indent
+            def parse_op():
+                amount = tokens.popany(NUMBER).value
+                currency = tokens.get(ID)
+                comment = tokens.get(COMMENT)
+                cash.add_operation(dt, account_from, account_to,
+                    amount, currency, comment)
+                tokens.popany(LEND)
 
 
 def parse_root(tokens, cash):
     token = tokens.popany(RATE, CURRENCY, INITIAL, DATE, COMMENT)
     if token.id == CURRENCY:
-        parse_currency(tokens, cash)
+        cash.currency = tokens.popany(ID).value
+        tokens.popany(LEND)
     elif token.id == RATE:
-        parse_rates(tokens, cash)
+        parse_rate(tokens, cash)
     elif token.id == INITIAL:
-        parse_initials(tokens, cash)
+        parse_initial(tokens, cash)
     elif token.id == DATE:
         parse_date(tokens, cash, token.value)
     elif token.id == COMMENT:
@@ -185,7 +162,7 @@ def parse_root(tokens, cash):
 
 def parse(lines):
     cash = Cash()
-    tokens = TokenGenerator(lexer(lines))
+    tokens = TokenFeed(lexer(lines))
     try:
         while True:
             parse_root(tokens, cash)
@@ -193,7 +170,6 @@ def parse(lines):
         pass
 
     return cash
-
 
 class Account(object):
     def __init__(self, cash, name, currency):
@@ -222,7 +198,8 @@ class Cash(object):
         except KeyError:
             pass
 
-        account = self.accounts[name] = Account(self, name, currency or self.currency)
+        account = self.accounts[name] = Account(
+            self, name, currency or self.currency)
         return account
 
     def convert_amount(self, from_currency, to_currency, amount):
