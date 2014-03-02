@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 
 LEND    = 'lend'
 INDENT  = 'indent'
@@ -171,35 +171,60 @@ def parse(lines):
 
     return cash
 
-class Account(object):
-    def __init__(self, cash, name, currency):
-        self.cash = cash
-        self.name = name
-        self.currency = currency
-        self.balance = 0
 
-    def add(self, amount, currency):
-        self.balance += self.cash.convert_amount(currency, self.currency, amount)
+class pddict(defaultdict):
+    __getattr__ = defaultdict.__getitem__
+
+
+class pdict(dict):
+    __getattr__ = dict.__getitem__
+
+
+class Account(object):
+    def __init__(self, qname, title, reverse=None, parent=None):
+        self.parent = parent
+        self.qname = qname
+        self.title = title
+        self.balance = pddict(float)
+        self.reverse = reverse or 1.0
+        self.accounts = {}
+
+    def add(self, amount, currency, initial=False):
+        if not initial:
+            amount *= self.reverse
+        self.balance[currency] += amount
 
     def __repr__(self):
-        return '{} ({}): {}'.format(self.name, self.currency, self.balance)
+        return '{}: {}'.format(self.qname, dict(self.balance))
 
 
 class Cash(object):
-    def __init__(self):
-        self.accounts = {}
-        self.operations = []
-        self.currency = 'USD'
+    def __init__(self, currency=None):
+        self.assets = Account('a', 'assets')
+        self.expenses = Account('e', 'expenses')
+        self.liabilities = Account('l', 'liabilities', -1.0)
+        self.income = Account('i', 'income', -1.0)
+        self.accounts = {r.qname: r for r in (self.assets, self.expenses,
+            self.liabilities, self.income)}
+
+        self.currency = currency or 'USD'
         self.rates = {}
 
-    def get_account(self, name, currency):
+    def get_account(self, qname):
         try:
-            return self.accounts[name]
+            return self.accounts[qname]
         except KeyError:
             pass
 
-        account = self.accounts[name] = Account(
-            self, name, currency or self.currency)
+        pqname, _, title = qname.rpartition(':')
+        if not pqname:
+            raise KeyError(qname)
+
+        parent = self.get_account(pqname)
+        account = self.accounts[qname] = Account(qname,
+            title, parent.reverse, parent)
+
+        parent.accounts[title] = account
         return account
 
     def convert_amount(self, from_currency, to_currency, amount):
@@ -208,18 +233,24 @@ class Cash(object):
 
         return amount * self.rates[from_currency + to_currency]
 
-    def process_account(self, name, amount, currency):
-        acur = currency = currency or self.currency
-        while name:
-            self.get_account(name, acur).add(amount, currency)
-            name = name.rpartition(':')[0]
-            acur = self.currency
+    def process_account(self, name, amount, currency, initial=False):
+        currency = currency or self.currency
+        account = self.get_account(name)
+        while account:
+            account.add(amount, currency, initial)
+            account = account.parent
 
     def add_operation(self, date, from_acc, to_acc, amount, currency, comment):
         if from_acc:
             self.process_account(from_acc, -amount, currency)
 
-        self.process_account(to_acc, amount, currency)
+        self.process_account(to_acc, amount, currency, not from_acc)
+
+    @property
+    def equity(self):
+        curs = set(self.assets.balance)
+        curs.update(self.liabilities.balance)
+        return pdict({r: self.assets.balance[r] - self.liabilities.balance[r] for r in curs})
 
 
 if __name__ == '__main__':
