@@ -13,7 +13,8 @@ CURRENCY = 'currency'
 RATE     = 'rate'
 INITIAL  = 'initial'
 AS       = 'as'
-KEYWORDS = {r:r for r in (CURRENCY, RATE, INITIAL, AS)}
+REV      = 'rev'
+KEYWORDS = {r:r for r in (CURRENCY, RATE, INITIAL, AS, REV)}
 
 DATEFMT = '%Y-%m-%d'
 INITDATE = date(1983, 6, 11)
@@ -127,6 +128,8 @@ def parse_initial(tokens, cash):
 
 
 def parse_date(tokens, cash, dt):
+    reverse = tokens.skipif(REV)
+
     @tokens.indent
     def parse_from():
         account_from = tokens.popany(CID).value
@@ -140,8 +143,13 @@ def parse_date(tokens, cash, dt):
                 amount = tokens.popany(NUMBER).value
                 currency = tokens.get(ID)
                 comment = tokens.get(COMMENT)
-                cash.add_operation(dt, account_from, account_to,
-                    amount, currency, comment)
+                if reverse:
+                    cash.add_operation(dt, account_to, account_from,
+                        amount, currency, comment)
+                else:
+                    cash.add_operation(dt, account_from, account_to,
+                        amount, currency, comment)
+
                 tokens.popany(LEND)
 
 
