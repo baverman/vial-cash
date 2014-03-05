@@ -1,5 +1,6 @@
+#!/usr/bin/env python2
 from datetime import datetime, date
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, OrderedDict
 
 LEND    = 'lend'
 INDENT  = 'indent'
@@ -128,15 +129,14 @@ def parse_initial(tokens, cash):
 
 
 def parse_date(tokens, cash, dt):
-    reverse = tokens.skipif(REV)
-
     @tokens.indent
     def parse_from():
-        account_from = tokens.popany(CID).value
+        reverse = tokens.skipif(REV)
+        acc1 = tokens.popany(CID).value
 
         @tokens.indent
         def parse_to():
-            account_to = tokens.popany(CID).value
+            acc2 = tokens.popany(CID).value
 
             @tokens.indent
             def parse_op():
@@ -144,11 +144,9 @@ def parse_date(tokens, cash, dt):
                 currency = tokens.get(ID)
                 comment = tokens.get(COMMENT)
                 if reverse:
-                    cash.add_operation(dt, account_to, account_from,
-                        amount, currency, comment)
+                    cash.add_operation(dt, acc2, acc1, amount, currency, comment)
                 else:
-                    cash.add_operation(dt, account_from, account_to,
-                        amount, currency, comment)
+                    cash.add_operation(dt, acc1, acc2, amount, currency, comment)
 
                 tokens.popany(LEND)
 
@@ -196,6 +194,10 @@ class Account(object):
         self.balance = pddict(float)
         self.reverse = reverse or 1.0
         self.accounts = {}
+        if parent:
+            self.level = parent.level + 1
+        else:
+            self.level = 0
 
     def add(self, amount, currency, initial=False):
         if not initial:
@@ -260,6 +262,61 @@ class Cash(object):
         curs.update(self.liabilities.balance)
         return pdict({r: self.assets.balance[r] - self.liabilities.balance[r] for r in curs})
 
+    def total(self, balance):
+        return sum(self.convert_amount(cur, self.currency, amount)
+            for cur, amount in balance.iteritems())
+
+
+def walk_acc(acc):
+    yield acc
+    for child in sorted(acc.accounts.itervalues(), key=lambda r: r.title):
+        for a in walk_acc(child):
+            yield a
+
+
+def collect_stats(cash, accounts):
+    currencies = OrderedDict()
+    currencies[cash.currency] = True
+    non_zero_accounts = []
+
+    for acc_name in accounts:
+        for acc in walk_acc(cash.accounts[acc_name]):
+            if any(acc.balance.itervalues()):
+                non_zero_accounts.append(acc)
+                for cur, amount in acc.balance.iteritems():
+                    if amount:
+                        currencies[cur] = True
+
+    return non_zero_accounts, currencies
+
+
+def get_format(accounts, curs, indent=2):
+    max_width = max(indent * r.level + len(r.title) for r in accounts)
+    titlefmt = '{{0:<{}}}'.format(max_width)
+    amountfmt = '  '.join('{{1[{}]:10.2f}}'.format(r) for r in curs)
+    headerfmt = '  '.join('{{{}:>10}}'.format(i) for i, r in enumerate(curs, 1))
+    fmt = '{}  {}'.format(titlefmt, amountfmt)
+    hfmt = '{}  {}'.format(titlefmt, headerfmt)
+    return fmt, hfmt
+
+
+def report(cash):
+    nzaccounts, curs = collect_stats(cash, ['a', 'l'])
+    fmt, hfmt = get_format(nzaccounts, curs)
+    first = True
+    print hfmt.format('', *curs)
+    for acc in nzaccounts:
+        if not first and acc.level == 0:
+            print
+        first = False
+        print fmt.format('  ' * acc.level + acc.title, acc.balance)
+
+    print
+    equity = cash.equity
+    print fmt.format('equity', equity), ' {:10.2f}'.format(cash.total(equity))
+
 
 if __name__ == '__main__':
-    pass
+    import sys
+    cash = parse(open(sys.argv[1]))
+    report(cash)

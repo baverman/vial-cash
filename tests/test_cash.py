@@ -70,9 +70,10 @@ def test_multi_transactions():
 
 def test_reversed_multi_transactions():
     cash = fromstring('''
-        2014-01-01 rev e:flat
-            a:pocket 500
-            l:friend 100
+        2014-01-01
+            rev e:flat
+                a:pocket 500
+                l:friend 100
     ''')
 
     assert cash.assets.balance.USD == -500
