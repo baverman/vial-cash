@@ -13,9 +13,9 @@ CID     = 'cid'
 CURRENCY = 'currency'
 RATE     = 'rate'
 INITIAL  = 'initial'
-AS       = 'as'
+SPLIT    = 'split'
 REV      = 'rev'
-KEYWORDS = {r:r for r in (CURRENCY, RATE, INITIAL, AS, REV)}
+KEYWORDS = {r:r for r in (CURRENCY, RATE, INITIAL, SPLIT, REV)}
 
 DATEFMT = '%Y-%m-%d'
 INITDATE = date(1983, 6, 11)
@@ -44,15 +44,20 @@ def lexer(lines):
             else:
                 if ':' in part:
                     yield Token(CID, part, ln)
-                elif '-' in part:
-                    yield Token(DATE, datetime.strptime(part, DATEFMT).date(), ln)
-                else:
+                    continue
+
+                if '-' in part:
                     try:
-                        value = float(part)
-                    except ValueError:
-                        yield Token(ID, part, ln)
-                    else:
-                        yield Token(NUMBER, value, ln)
+                        yield Token(DATE, datetime.strptime(part, DATEFMT).date(), ln)
+                        continue
+                    except ValueError: pass
+
+                try:
+                    value = float(part)
+                except ValueError:
+                    yield Token(ID, part, ln)
+                else:
+                    yield Token(NUMBER, value, ln)
 
         yield Token(LEND, None, ln)
 
@@ -131,24 +136,37 @@ def parse_initial(tokens, cash):
 def parse_date(tokens, cash, dt):
     @tokens.indent
     def parse_from():
-        reverse = tokens.skipif(REV)
-        acc1 = tokens.popany(CID).value
+        if tokens.skipif(SPLIT):
+            @tokens.indent
+            def parse():
+                acc = tokens.popany(CID).value
 
-        @tokens.indent
-        def parse_to():
-            acc2 = tokens.popany(CID).value
+                @tokens.indent
+                def parse_op():
+                    amount = tokens.popany(NUMBER).value
+                    currency = tokens.get(ID)
+                    comment = tokens.get(COMMENT)
+                    cash.process_account(acc, amount, currency)
+                    tokens.popany(LEND)
+        else:
+            reverse = tokens.skipif(REV)
+            acc1 = tokens.popany(CID).value
 
             @tokens.indent
-            def parse_op():
-                amount = tokens.popany(NUMBER).value
-                currency = tokens.get(ID)
-                comment = tokens.get(COMMENT)
-                if reverse:
-                    cash.add_operation(dt, acc2, acc1, amount, currency, comment)
-                else:
-                    cash.add_operation(dt, acc1, acc2, amount, currency, comment)
+            def parse_to():
+                acc2 = tokens.popany(CID).value
 
-                tokens.popany(LEND)
+                @tokens.indent
+                def parse_op():
+                    amount = tokens.popany(NUMBER).value
+                    currency = tokens.get(ID)
+                    comment = tokens.get(COMMENT)
+                    if reverse:
+                        cash.add_operation(dt, acc2, acc1, amount, currency, comment)
+                    else:
+                        cash.add_operation(dt, acc1, acc2, amount, currency, comment)
+
+                    tokens.popany(LEND)
 
 
 def parse_root(tokens, cash):

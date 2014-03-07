@@ -82,3 +82,16 @@ def test_reversed_multi_transactions():
     assert cash.equity.USD == -600
 
 
+def test_split():
+    cash = fromstring('''
+        2014-01-01
+            split
+                a:pocket -500
+                l:friend -100
+                e:flat 600
+    ''')
+
+    assert cash.assets.balance.USD == -500
+    assert cash.expenses.balance.USD == 600
+    assert cash.liabilities.balance.USD == 100
+    assert cash.equity.USD == -600

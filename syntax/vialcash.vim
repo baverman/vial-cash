@@ -4,7 +4,7 @@ endif
 
 let b:current_syntax = "vialcash"
 
-syntax keyword cashKeyword currency initial rate as rev
+syntax keyword cashKeyword currency initial rate split
 
 syntax match cashNumber "\<\%([1-9]\d*\|0\)[Ll]\=\>"
 syntax match cashNumber "\<\d\+[jJ]\>"
