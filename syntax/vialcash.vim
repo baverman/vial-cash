@@ -14,10 +14,10 @@ syntax match cashNumber "\%(^\|\W\)\@<=\d*\.\d\+\%([eE][+-]\=\d\+\)\=[jJ]\=\>"
 
 syntax match cashDate "\v[0-9]{4}-[0-9]{2}-[0-9]{2}"
 syntax match cashComment "\v#.*$"
-syntax match cashPositive "\va:[-a-zA-Z:]+"
-syntax match cashPositive "\vi:[-a-zA-Z:]+"
-syntax match cashNegative "\ve:[-a-zA-Z:]+"
-syntax match cashNegative "\vl:[-a-zA-Z:]+"
+syntax match cashPositive "\va:[-0-9a-zA-Z:]+"
+syntax match cashPositive "\vi:[-0-9a-zA-Z:]+"
+syntax match cashNegative "\ve:[-0-9a-zA-Z:]+"
+syntax match cashNegative "\vl:[-0-9a-zA-Z:]+"
 
 hi link cashKeyword Boolean
 hi link cashDate Boolean
