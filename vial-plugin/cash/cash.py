@@ -1,4 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
+from __future__ import print_function
+
+import argparse
 from datetime import datetime, date
 from collections import namedtuple, defaultdict, OrderedDict
 
@@ -282,12 +285,12 @@ class Cash(object):
 
     def total(self, balance):
         return sum(self.convert_amount(cur, self.currency, amount)
-            for cur, amount in balance.iteritems())
+            for cur, amount in balance.items())
 
 
 def walk_acc(acc):
     yield acc
-    for child in sorted(acc.accounts.itervalues(), key=lambda r: r.title):
+    for child in sorted(acc.accounts.values(), key=lambda r: r.title):
         for a in walk_acc(child):
             yield a
 
@@ -299,9 +302,9 @@ def collect_stats(cash, accounts):
 
     for acc_name in accounts:
         for acc in walk_acc(cash.accounts[acc_name]):
-            if any(acc.balance.itervalues()):
+            if any(acc.balance.values()):
                 non_zero_accounts.append(acc)
-                for cur, amount in acc.balance.iteritems():
+                for cur, amount in acc.balance.items():
                     if amount:
                         currencies[cur] = True
 
@@ -318,23 +321,48 @@ def get_format(accounts, curs, indent=2):
     return fmt, hfmt
 
 
-def report(cash):
-    nzaccounts, curs = collect_stats(cash, ['a', 'l'])
+def report(cash, accs, with_equity=False):
+    nzaccounts, curs = collect_stats(cash, accs)
     fmt, hfmt = get_format(nzaccounts, curs)
     first = True
-    print hfmt.format('', *curs)
+    print(hfmt.format('', *curs))
     for acc in nzaccounts:
         if not first and acc.level == 0:
-            print
+            print()
         first = False
-        print fmt.format('  ' * acc.level + acc.title, acc.balance)
+        print(fmt.format('  ' * acc.level + acc.title, acc.balance))
 
-    print
-    equity = cash.equity
-    print fmt.format('equity', equity), ' {:10.2f}'.format(cash.total(equity))
+    if with_equity:
+        print()
+        equity = cash.equity
+        print(fmt.format('equity', equity), ' {:10.2f}'.format(cash.total(equity)))
+
+
+def do_balance_report(args):
+    cash = parse(args.file)
+    report(cash, ['a', 'l'], True)
+
+
+def do_month_report(args):
+    cash = parse(args.file)
+    report(cash, ['e', 'i'])
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers()
+
+    p = subparsers.add_parser('balance', help='show balance report')
+    p.add_argument('file', type=argparse.FileType())
+    p.set_defaults(call=do_balance_report)
+
+    p = subparsers.add_parser('month', help='show month report')
+    p.add_argument('file', type=argparse.FileType())
+    p.set_defaults(call=do_month_report)
+
+    args = parser.parse_args()
+    args.call(args)
 
 
 if __name__ == '__main__':
-    import sys
-    cash = parse(open(sys.argv[1]))
-    report(cash)
+    main()
