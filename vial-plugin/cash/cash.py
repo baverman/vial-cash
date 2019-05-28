@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 from __future__ import print_function
 
 import argparse
@@ -24,6 +24,7 @@ DATEFMT = '%Y-%m-%d'
 INITDATE = date(1983, 6, 11)
 
 Token = namedtuple('Token', 'id value line')
+Op = namedtuple('Op', 'initial dt account amount currency comment')
 
 
 def lexer(lines):
@@ -116,27 +117,27 @@ class TokenFeed(object):
             func()
 
 
-def parse_rate(tokens, cash):
+def parse_rate(tokens, config):
     @tokens.indent
     def parse():
         cur = tokens.popany(ID).value
         multiplier = tokens.popany(NUMBER).value
-        cash.rates[cur] = multiplier
+        config['rates'][cur] = multiplier
         tokens.popany(LEND)
 
 
-def parse_initial(tokens, cash):
+def parse_initial(tokens, config):
     @tokens.indent
     def parse():
         account = tokens.popany(CID).value
         amount = tokens.popany(NUMBER).value
         currency = tokens.get(ID)
         comment = tokens.get(COMMENT)
-        cash.add_operation(INITDATE, None, account, amount, currency, comment)
+        config['ops'].append(Op(True, INITDATE, account, amount, currency, comment))
         tokens.popany(LEND)
 
 
-def parse_date(tokens, cash, dt):
+def parse_date(tokens, config, dt):
     @tokens.indent
     def parse_from():
         if tokens.skipif(SPLIT):
@@ -149,7 +150,7 @@ def parse_date(tokens, cash, dt):
                     amount = tokens.popany(NUMBER).value
                     currency = tokens.get(ID)
                     comment = tokens.get(COMMENT)
-                    cash.process_account(acc, amount, currency)
+                    config['ops'].append(Op(False, dt, acc, amount, currency, comment))
                     tokens.popany(LEND)
         else:
             reverse = tokens.skipif(REV)
@@ -165,38 +166,53 @@ def parse_date(tokens, cash, dt):
                     currency = tokens.get(ID)
                     comment = tokens.get(COMMENT)
                     if reverse:
-                        cash.add_operation(dt, acc2, acc1, amount, currency, comment)
-                    else:
-                        cash.add_operation(dt, acc1, acc2, amount, currency, comment)
-
+                        amount = -amount
+                    config['ops'].append(Op(False, dt, acc1, -amount, currency, comment))
+                    config['ops'].append(Op(False, dt, acc2, amount, currency, comment))
                     tokens.popany(LEND)
 
 
-def parse_root(tokens, cash):
+def parse_root(tokens, config):
     token = tokens.popany(RATE, CURRENCY, INITIAL, DATE, COMMENT)
     if token.id == CURRENCY:
-        cash.currency = tokens.popany(ID).value
+        config['currency'] = tokens.popany(ID).value
         tokens.popany(LEND)
     elif token.id == RATE:
-        parse_rate(tokens, cash)
+        parse_rate(tokens, config)
     elif token.id == INITIAL:
-        parse_initial(tokens, cash)
+        parse_initial(tokens, config)
     elif token.id == DATE:
-        parse_date(tokens, cash, token.value)
+        parse_date(tokens, config, token.value)
     elif token.id == COMMENT:
         tokens.popany(LEND)
 
 
 def parse(lines):
-    cash = Cash()
+    config = {
+        'currency': None,
+        'rates': {},
+        'ops': [],
+    }
     tokens = TokenFeed(lexer(lines))
     try:
         while True:
-            parse_root(tokens, cash)
+            parse_root(tokens, config)
     except StopIteration:
         pass
 
+    return config
+
+
+def make_cash(config, start=None, end=None):
+    cash = Cash(config['currency'])
+    cash.rates.update(config['rates'])
+    cash.apply_operations(filter_ops(config['ops'], start, end))
     return cash
+
+
+def filter_ops(ops, start, end):
+    return (it for it in ops if (not start or it.dt >= start)
+            and (not end or it.dt < end))
 
 
 class pddict(defaultdict):
@@ -271,11 +287,9 @@ class Cash(object):
             account.add(amount, currency, initial)
             account = account.parent
 
-    def add_operation(self, date, from_acc, to_acc, amount, currency, comment):
-        if from_acc:
-            self.process_account(from_acc, -amount, currency)
-
-        self.process_account(to_acc, amount, currency, not from_acc)
+    def apply_operations(self, ops):
+        for op in ops:
+            self.process_account(op.account, op.amount, op.currency, op.initial)
 
     @property
     def equity(self):
@@ -311,6 +325,22 @@ def collect_stats(cash, accounts):
     return non_zero_accounts, currencies
 
 
+def next_month(dt):
+    yd, month = divmod(dt.month, 12)
+    return dt.replace(year=dt.year+yd, month=month+1)
+
+
+def prev_month(dt):
+    yd, month = divmod(dt.month - 2, 12)
+    return dt.replace(year=dt.year+yd, month=month+1)
+
+
+def month_range(dt):
+    start = dt.replace(day=1)
+    end = next_month(start)
+    return start, end
+
+
 def get_format(accounts, curs, indent=2):  # pragma: no cover
     max_width = max(indent * r.level + len(r.title) for r in accounts)
     titlefmt = '{{0:<{}}}'.format(max_width)
@@ -323,6 +353,11 @@ def get_format(accounts, curs, indent=2):  # pragma: no cover
 
 def report(cash, accs, with_equity=False):  # pragma: no cover
     nzaccounts, curs = collect_stats(cash, accs)
+
+    if not nzaccounts:
+        print('No data')
+        return
+
     fmt, hfmt = get_format(nzaccounts, curs)
     first = True
     print(hfmt.format('', *curs))
@@ -339,12 +374,19 @@ def report(cash, accs, with_equity=False):  # pragma: no cover
 
 
 def do_balance_report(args):  # pragma: no cover
-    cash = parse(args.file)
+    cash = make_cash(parse(args.file))
     report(cash, ['a', 'l'], True)
 
 
 def do_month_report(args):  # pragma: no cover
-    cash = parse(args.file)
+    config = parse(args.file)
+    if args.month == 'current':
+        start, end = month_range(date.today())
+    elif args.month == 'prev':
+        end, _ = month_range(date.today())
+        start = prev_month(end)
+
+    cash = make_cash(config, start, end)
     report(cash, ['e', 'i'])
 
 
@@ -357,6 +399,7 @@ def main():  # pragma: no cover
     p.set_defaults(call=do_balance_report)
 
     p = subparsers.add_parser('month', help='show month report')
+    p.add_argument('--month', default='current')
     p.add_argument('file', type=argparse.FileType())
     p.set_defaults(call=do_month_report)
 
