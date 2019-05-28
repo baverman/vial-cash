@@ -1,16 +1,27 @@
-from cash import parse
 from textwrap import dedent
+import pytest
+from cash import parse, Cash, walk_acc, collect_stats
+
 
 def fromstring(data):
     data = dedent(data)
     return parse(data.splitlines())
 
 
+def test_get_account():
+    cash = Cash()
+    assert cash.get_account('a:boo')
+
+    with pytest.raises(KeyError):
+        assert cash.get_account('boo:foo')
+
+
 def test_simple_transaction():
     cash = fromstring('''
+        # some comment
         2014-01-01
             a:pocket
-                e:food 100
+                e:food 100 # Grocery
                 e:games 200
     ''')
 
@@ -20,6 +31,15 @@ def test_simple_transaction():
     assert cash.accounts['e:games'].balance.USD == 200
     assert cash.expenses.accounts['food'].balance.USD == 100
     assert cash.expenses.accounts['games'].balance.USD == 200
+
+    assert repr(cash.accounts['a']) == "Account(a, {'USD': -300.0})"
+
+    a1, a2 = list(walk_acc(cash.assets))
+    assert a1 is cash.assets
+    assert a2 is cash.get_account('a:pocket')
+
+    accs, curs = collect_stats(cash, ['e'])
+    assert 'USD' in curs
 
 
 def test_liabilities_should_account_negative_amounts():
@@ -45,16 +65,18 @@ def test_initial_amounts():
     assert cash.accounts['a:bank'].balance.USD == 100
 
 
-def test_default_currency():
+def test_currency():
     cash = fromstring('''
-        currency RUR
+        currency BOO
+        rate FOOBOO 3
         initial a:pocket 300
-        2014-01-01 a:pocket e:food 200
+        2014-01-01 a:pocket e:food 50 FOO
     ''')
 
-    assert cash.assets.balance.USD == 0
-    assert cash.assets.balance.RUR == 100
-    assert cash.expenses.balance.RUR == 200
+    assert cash.assets.balance.BOO == 300
+    assert cash.assets.balance.FOO == -50
+    assert cash.expenses.balance.FOO == 50
+    assert cash.total(cash.assets.balance) == 150
 
 
 def test_multi_transactions():

@@ -85,7 +85,7 @@ class TokenFeed(object):
 
     def popany(self, *ids):
         token = self.pop()
-        if token.id not in ids:
+        if token.id not in ids:  # pragma: no cover
             raise Exception('line {}: {} not in {}'.format(
                 token.line, token.id, ids))
 
@@ -226,7 +226,7 @@ class Account(object):
         self.balance[currency] += amount
 
     def __repr__(self):
-        return '{}: {}'.format(self.qname, dict(self.balance))
+        return 'Account({}, {})'.format(self.qname, dict(self.balance))
 
 
 class Cash(object):
@@ -311,7 +311,7 @@ def collect_stats(cash, accounts):
     return non_zero_accounts, currencies
 
 
-def get_format(accounts, curs, indent=2):
+def get_format(accounts, curs, indent=2):  # pragma: no cover
     max_width = max(indent * r.level + len(r.title) for r in accounts)
     titlefmt = '{{0:<{}}}'.format(max_width)
     amountfmt = '  '.join('{{1[{}]:10.2f}}'.format(r) for r in curs)
@@ -321,7 +321,7 @@ def get_format(accounts, curs, indent=2):
     return fmt, hfmt
 
 
-def report(cash, accs, with_equity=False):
+def report(cash, accs, with_equity=False):  # pragma: no cover
     nzaccounts, curs = collect_stats(cash, accs)
     fmt, hfmt = get_format(nzaccounts, curs)
     first = True
@@ -338,17 +338,17 @@ def report(cash, accs, with_equity=False):
         print(fmt.format('equity', equity), ' {:10.2f}'.format(cash.total(equity)))
 
 
-def do_balance_report(args):
+def do_balance_report(args):  # pragma: no cover
     cash = parse(args.file)
     report(cash, ['a', 'l'], True)
 
 
-def do_month_report(args):
+def do_month_report(args):  # pragma: no cover
     cash = parse(args.file)
     report(cash, ['e', 'i'])
 
 
-def main():
+def main():  # pragma: no cover
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
 
@@ -364,5 +364,5 @@ def main():
     args.call(args)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     main()
