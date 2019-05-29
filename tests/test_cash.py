@@ -54,7 +54,7 @@ def test_simple_transaction():
     assert a1 is cash.assets
     assert a2 is cash.get_account('a:pocket')
 
-    accs, curs = collect_stats(cash, ['e'])
+    accs, curs = collect_stats(cash, ['e'], 1)
     assert 'USD' in curs
 
 

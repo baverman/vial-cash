@@ -302,20 +302,22 @@ class Cash(object):
             for cur, amount in balance.items())
 
 
-def walk_acc(acc):
+def walk_acc(acc, max_level=None):
     yield acc
+    if max_level is not None and acc.level >= max_level:
+        return
     for child in sorted(acc.accounts.values(), key=lambda r: r.title):
-        for a in walk_acc(child):
+        for a in walk_acc(child, max_level):
             yield a
 
 
-def collect_stats(cash, accounts):
+def collect_stats(cash, accounts, max_level=None):
     currencies = OrderedDict()
     currencies[cash.currency] = True
     non_zero_accounts = []
 
     for acc_name in accounts:
-        for acc in walk_acc(cash.accounts[acc_name]):
+        for acc in walk_acc(cash.accounts[acc_name], max_level):
             if any(acc.balance.values()):
                 non_zero_accounts.append(acc)
                 for cur, amount in acc.balance.items():
@@ -351,8 +353,8 @@ def get_format(accounts, curs, indent=2):  # pragma: no cover
     return fmt, hfmt
 
 
-def report(cash, accs, with_equity=False):  # pragma: no cover
-    nzaccounts, curs = collect_stats(cash, accs)
+def report(cash, accs, with_equity=False, max_level=None):  # pragma: no cover
+    nzaccounts, curs = collect_stats(cash, accs, max_level=max_level)
 
     if not nzaccounts:
         print('No data')
@@ -375,7 +377,7 @@ def report(cash, accs, with_equity=False):  # pragma: no cover
 
 def do_balance_report(args):  # pragma: no cover
     cash = make_cash(parse(args.file))
-    report(cash, ['a', 'l'], True)
+    report(cash, ['a', 'l'], True, max_level=args.level)
 
 
 def do_month_report(args):  # pragma: no cover
@@ -387,7 +389,7 @@ def do_month_report(args):  # pragma: no cover
         start = prev_month(end)
 
     cash = make_cash(config, start, end)
-    report(cash, ['e', 'i'])
+    report(cash, ['e', 'i'], max_level=args.level)
 
 
 def main():  # pragma: no cover
@@ -395,11 +397,13 @@ def main():  # pragma: no cover
     subparsers = parser.add_subparsers()
 
     p = subparsers.add_parser('balance', help='show balance report')
+    p.add_argument('--level', '-l', type=int)
     p.add_argument('file', type=argparse.FileType())
     p.set_defaults(call=do_balance_report)
 
     p = subparsers.add_parser('month', help='show month report')
-    p.add_argument('--month', default='current')
+    p.add_argument('--level', '-l', type=int)
+    p.add_argument('--month', '-m', default='current')
     p.add_argument('file', type=argparse.FileType())
     p.set_defaults(call=do_month_report)
 
