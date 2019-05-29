@@ -3,6 +3,7 @@ if exists("b:current_syntax")
 endif
 
 let b:current_syntax = "vialcash"
+setlocal iskeyword+=:
 
 syntax keyword cashKeyword currency initial rate split rev
 
